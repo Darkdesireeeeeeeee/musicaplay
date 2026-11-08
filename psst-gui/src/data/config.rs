@@ -102,7 +102,7 @@ impl Authentication {
     }
 }
 
-const APP_NAME: &str = "Psst";
+const APP_NAME: &str = "Musicaplay";
 const CONFIG_FILENAME: &str = "config.json";
 const PROXY_ENV_VAR: &str = "SOCKS_PROXY";
 

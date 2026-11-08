@@ -180,7 +180,7 @@ impl PlaybackController {
 
         let mut media_controls = MediaControls::new(PlatformConfig {
             dbus_name: format!("com.jpochyla.psst.{}", random_lowercase_string(8)).as_str(),
-            display_name: "Psst",
+            display_name: "Musicaplay",
             hwnd,
         })?;
 

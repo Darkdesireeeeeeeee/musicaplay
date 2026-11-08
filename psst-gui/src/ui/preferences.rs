@@ -63,7 +63,7 @@ pub fn account_setup_widget() -> impl Widget<AppState> {
         .with_spacer(theme::grid(2.0))
         .with_child(
             Label::new(
-                "Psst connects only to the official servers, and does not store your password.",
+                "Musicaplay connects only to the official servers, and does not store your password.",
             )
             .with_text_color(theme::PLACEHOLDER_COLOR)
             .with_line_break_mode(LineBreaking::WordWrap),

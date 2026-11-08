@@ -1,10 +1,9 @@
 name: CI
 
+# Musicaplay: upstream's full build and rolling release, on demand only;
+# musicaplay.yml builds the Windows executable on every push.
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read

@@ -1,0 +1,45 @@
+# Musicaplay: builds the Windows executable on every push to main, or on
+# demand (Actions > Musicaplay > Run workflow), and keeps it as the run's
+# artifact.
+name: Musicaplay
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: musicaplay-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p psst-gui
+      - name: Package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/Musicaplay | Out-Null
+          Copy-Item target/release/psst-gui.exe dist/Musicaplay/Musicaplay.exe
+          Copy-Item LICENSE.md dist/Musicaplay/LICENSE.md
+          Set-Content dist/Musicaplay/LISEZMOI.txt -Encoding utf8 -Value @(
+            'Musicaplay, base sur Psst (https://github.com/jpochyla/psst, licence MIT).',
+            'Lance Musicaplay.exe et connecte-toi avec ton compte Spotify Premium.',
+            'Code source : https://github.com/${{ github.repository }}'
+          )
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Musicaplay-windows
+          path: dist/Musicaplay
+          if-no-files-found: error

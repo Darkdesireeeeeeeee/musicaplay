@@ -647,6 +647,6 @@ fn compute_main_window_title(data: &AppState, _env: &Env) -> String {
             Playable::Episode(episode) => episode.name.to_string(),
         }
     } else {
-        "Psst".to_owned()
+        "Musicaplay".to_owned()
     }
 }
