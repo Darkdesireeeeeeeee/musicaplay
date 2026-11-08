@@ -10,6 +10,7 @@ mod on_command_async;
 mod on_debounce;
 mod on_update;
 mod playback;
+mod remote;
 mod session;
 mod sort;
 

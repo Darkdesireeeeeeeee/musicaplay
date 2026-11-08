@@ -1465,6 +1465,136 @@ impl WebApi {
     }
 }
 
+/// Musicaplay: a Spotify Connect device, such as the official app on this
+/// computer, which plays what Musicaplay chooses.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteDevice {
+    pub id: Option<String>,
+    #[serde(default)]
+    pub is_active: bool,
+    #[serde(rename = "type", default)]
+    pub kind: String,
+    #[serde(default)]
+    pub name: String,
+}
+
+/// Musicaplay: what the active device plays.
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteState {
+    #[serde(default)]
+    pub is_playing: bool,
+    pub progress_ms: Option<u64>,
+    pub item: Option<RemoteItem>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+pub struct RemoteItem {
+    pub id: Option<String>,
+    /// "track" or "episode".
+    #[serde(rename = "type", default)]
+    pub kind: String,
+}
+
+/// Musicaplay: Spotify Connect endpoints, which play through another device,
+/// as librespot can no longer play most accounts itself.
+impl WebApi {
+    // https://developer.spotify.com/documentation/web-api/reference/get-a-users-available-devices
+    pub fn remote_devices(&self) -> Result<Vec<RemoteDevice>, Error> {
+        #[derive(Deserialize)]
+        struct Devices {
+            #[serde(default)]
+            devices: Vec<RemoteDevice>,
+        }
+        let request = &RequestBuilder::new("v1/me/player/devices", Method::Get, None);
+        Ok(self.load::<Devices>(request)?.devices)
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/get-information-about-the-users-current-playback
+    /// None while nothing plays anywhere, which Spotify answers with 204.
+    pub fn remote_state(&self) -> Result<Option<RemoteState>, Error> {
+        let request = RequestBuilder::new("v1/me/player", Method::Get, None);
+        let mut response = Self::with_retry(|| self.request(&request))?;
+        if response.status() == StatusCode::NO_CONTENT {
+            return Ok(None);
+        }
+        response
+            .body_mut()
+            .read_json()
+            .map(Some)
+            .map_err(|err| Error::WebApiError(err.to_string()))
+    }
+
+    fn on_device(request: RequestBuilder, device: Option<&str>) -> RequestBuilder {
+        match device {
+            Some(device) => request.query("device_id", device),
+            None => request,
+        }
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/start-a-users-playback
+    pub fn remote_play(
+        &self,
+        device: Option<&str>,
+        uris: &[String],
+        position: usize,
+    ) -> Result<(), Error> {
+        let request = RequestBuilder::new("v1/me/player/play", Method::Put, None).set_body(Some(
+            json!({"uris": uris, "offset": {"position": position}, "position_ms": 0}),
+        ));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    pub fn remote_resume(&self, device: Option<&str>) -> Result<(), Error> {
+        let request =
+            RequestBuilder::new("v1/me/player/play", Method::Put, None).set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/pause-a-users-playback
+    pub fn remote_pause(&self, device: Option<&str>) -> Result<(), Error> {
+        let request =
+            RequestBuilder::new("v1/me/player/pause", Method::Put, None).set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/skip-users-playback-to-next-track
+    pub fn remote_next(&self, device: Option<&str>) -> Result<(), Error> {
+        let request =
+            RequestBuilder::new("v1/me/player/next", Method::Post, None).set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    pub fn remote_previous(&self, device: Option<&str>) -> Result<(), Error> {
+        let request = RequestBuilder::new("v1/me/player/previous", Method::Post, None)
+            .set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/seek-to-position-in-currently-playing-track
+    pub fn remote_seek(&self, device: Option<&str>, position_ms: u64) -> Result<(), Error> {
+        let request = RequestBuilder::new("v1/me/player/seek", Method::Put, None)
+            .query("position_ms", position_ms)
+            .set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/add-to-queue
+    pub fn remote_queue(&self, device: Option<&str>, uri: &str) -> Result<(), Error> {
+        let request = RequestBuilder::new("v1/me/player/queue", Method::Post, None)
+            .query("uri", uri)
+            .set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+
+    // https://developer.spotify.com/documentation/web-api/reference/set-volume-for-users-playback
+    pub fn remote_volume(&self, device: Option<&str>, percent: u8) -> Result<(), Error> {
+        let request = RequestBuilder::new("v1/me/player/volume", Method::Put, None)
+            .query("volume_percent", percent.min(100))
+            .set_body(Some(json!({})));
+        self.send_empty_json(&Self::on_device(request, device))
+    }
+}
+
 /// View endpoints.
 impl WebApi {
     pub fn get_user_info(&self) -> Result<(String, String), Error> {

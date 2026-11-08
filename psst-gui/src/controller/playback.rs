@@ -23,6 +23,7 @@ use souvlaki::{
 };
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use super::remote::{Remote, RemoteCommand, REMOTE_ERROR};
 use crate::{
     cmd,
     data::Nav,
@@ -41,6 +42,9 @@ pub struct PlaybackController {
     has_scrobbled: bool,
     scrobbler: Option<Scrobbler>,
     startup: bool,
+    /// Musicaplay: plays through the official Spotify app, in place of the
+    /// built-in player Spotify no longer gives audio keys to.
+    remote: Option<Remote>,
 }
 fn init_scrobbler_instance(data: &AppState) -> Option<Scrobbler> {
     if data.config.lastfm_enable {
@@ -78,6 +82,19 @@ impl PlaybackController {
             has_scrobbled: false,
             scrobbler: None,
             startup: true,
+            remote: None,
+        }
+    }
+
+    /// Sends `command` to the official app when Musicaplay plays through it;
+    /// false when the built-in player should take it.
+    fn remote(&self, command: impl FnOnce() -> RemoteCommand) -> bool {
+        match &self.remote {
+            Some(remote) => {
+                remote.send(command());
+                true
+            }
+            None => false,
         }
     }
 
@@ -316,6 +333,12 @@ impl PlaybackController {
     }
 
     fn play(&mut self, items: &Vector<QueueEntry>, position: usize) {
+        if self.remote.is_some() {
+            let ids: Vec<_> = items.iter().map(|queued| queued.item.id()).collect();
+            let (uris, position) = Remote::window(&ids, position);
+            self.remote(|| RemoteCommand::Play { uris, position });
+            return;
+        }
         let playback_items = items.iter().map(|queued| PlaybackItem {
             item_id: queued.item.id(),
             norm_level: match queued.origin {
@@ -339,30 +362,52 @@ impl PlaybackController {
     }
 
     fn pause(&mut self) {
+        if self.remote(|| RemoteCommand::Pause) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Pause));
     }
 
     fn resume(&mut self) {
+        if self.remote(|| RemoteCommand::Resume) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Resume));
     }
 
     fn pause_or_resume(&mut self) {
+        if self.remote(|| RemoteCommand::Toggle) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::PauseOrResume));
     }
 
     fn previous(&mut self) {
+        if self.remote(|| RemoteCommand::Previous) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Previous));
     }
 
     fn next(&mut self) {
+        if self.remote(|| RemoteCommand::Next) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Next));
     }
 
     fn stop(&mut self) {
+        // The official app has no stop: pausing it is the nearest.
+        if self.remote(|| RemoteCommand::Pause) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Stop));
     }
 
     fn seek(&mut self, position: Duration) {
+        if self.remote(|| RemoteCommand::Seek(position)) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::Seek { position }));
     }
 
@@ -383,10 +428,19 @@ impl PlaybackController {
     }
 
     fn set_volume(&mut self, volume: f64) {
+        if self.remote(|| RemoteCommand::Volume(volume)) {
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::SetVolume { volume }));
     }
 
     fn add_to_queue(&mut self, item: &PlaybackItem) {
+        if self.remote.is_some() {
+            if let Some(uri) = Remote::uri(&item.item_id) {
+                self.remote(|| RemoteCommand::Queue(uri));
+            }
+            return;
+        }
         self.send(PlayerEvent::Command(PlayerCommand::AddToQueue {
             item: *item,
         }));
@@ -425,6 +479,10 @@ where
         match event {
             Event::Command(cmd) if cmd.is(cmd::SET_FOCUS) => {
                 ctx.request_focus();
+            }
+            Event::Command(cmd) if cmd.is(REMOTE_ERROR) => {
+                data.error_alert(cmd.get_unchecked(REMOTE_ERROR));
+                ctx.set_handled();
             }
             Event::Command(cmd) if cmd.is(cmd::PLAYBACK_LOADING) => {
                 let item = cmd.get_unchecked(cmd::PLAYBACK_LOADING);
@@ -598,9 +656,12 @@ where
                     ctx.window(),
                 );
 
-                // Initialize values loaded from the config.
+                // Initialize values loaded from the config, in the built-in
+                // player, before Musicaplay hands playing to the official app,
+                // whose own volume stays as it was until changed here.
                 self.set_volume(data.playback.volume);
                 self.set_queue_behavior(data.playback.queue_behavior);
+                self.remote = Some(Remote::start(ctx.get_external_handle(), ctx.widget_id()));
 
                 // Request focus so we can receive keyboard events.
                 ctx.submit_command(cmd::SET_FOCUS.to(ctx.widget_id()));
