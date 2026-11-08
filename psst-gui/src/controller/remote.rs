@@ -41,6 +41,22 @@ pub enum RemoteCommand {
     Queue(String),
 }
 
+impl RemoteCommand {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Play { .. } => "play",
+            Self::Pause => "pause",
+            Self::Resume => "resume",
+            Self::Toggle => "toggle",
+            Self::Next => "next",
+            Self::Previous => "previous",
+            Self::Seek(_) => "seek",
+            Self::Volume(_) => "volume",
+            Self::Queue(_) => "queue",
+        }
+    }
+}
+
 pub struct Remote {
     sender: Sender<RemoteCommand>,
 }
@@ -58,6 +74,7 @@ impl Remote {
     }
 
     pub fn send(&self, command: RemoteCommand) {
+        log::info!("remote: sending {}", command.name());
         if let Err(error) = self.sender.send(command) {
             log::error!("remote worker is gone: {error}");
         }
@@ -148,6 +165,14 @@ impl Worker {
     fn device(&mut self) -> Option<String> {
         match WebApi::global().remote_devices() {
             Ok(devices) => {
+                log::info!(
+                    "remote: {} Spotify Connect devices: {:?}",
+                    devices.len(),
+                    devices
+                        .iter()
+                        .map(|device| format!("{} ({}, active: {})", device.name, device.kind, device.is_active))
+                        .collect::<Vec<_>>()
+                );
                 let chosen = devices
                     .iter()
                     .find(|device| device.is_active)
@@ -181,7 +206,11 @@ impl Worker {
         } else {
             self.device.clone()
         };
-        let Some(device) = device else { return };
+        let Some(device) = device else {
+            log::warn!("remote: no device to play on");
+            return;
+        };
+        log::info!("remote: {} on device {device}", command.name());
         let device = Some(device.as_str());
         let api = WebApi::global();
         let result = match command {
@@ -204,6 +233,9 @@ impl Worker {
             }
             RemoteCommand::Queue(uri) => api.remote_queue(device, &uri),
         };
+        if result.is_ok() {
+            log::info!("remote: Spotify accepted the command");
+        }
         if let Err(error) = result {
             log::warn!("Spotify refused a command: {error}");
             // The device may have closed; look for one again next time.
